@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Happy 16th Birthday! 🎮</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(to bottom, #87CEEB, #98D8E8);
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            border: 4px solid #333;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -webkit-crisp-edges;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+    </style>
+</head>
+<body>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+    <script>
+        const config = {
+            type: Phaser.AUTO,
+            width: 800,
+            height: 480,
+            backgroundColor: '#5C94FC',
+            physics: {
+                default: 'arcade',
+                arcade: {
+                    gravity: { y: 600 },
+                    debug: false
+                }
+            },
+            scene: {
+                preload: preload,
+                create: create,
+                update: update
+            },
+            pixelArt: true
+        };
+
+        const game = new Phaser.Game(config);
+
+        let player;
+        let enemies;
+        let coins;
+        let platforms;
+        let cursors;
+        let spaceBar;
+        let score = 0;
+        let coinCount = 0;
+        let scoreText;
+        let coinText;
+        let phraseText;
+        let timerText;
+        let gameOver = false;
+        let gameWon = false;
+        let restartKey;
+        let startTime;
+        let enemySpawnRate = 3000;
+        let lastDifficultyIncrease = 0;
+        let powerUpActive = false;
+        let powerUpEndTime = 0;
+        let powerUpText;
+        let backgroundMusic;
+        
+        let audioContext;
+
+        const phrases = [
+            "SKIBIDI!", "RIZZ!", "NO CAP FR FR", "GYATT!",
+            "SIGMA GRINDSET", "ONLY IN OHIO", "BUSSIN", "SLAY"
+        ];
+
+        const enemyTypes = [
+            { key: 'brother1', speed: -120, size: 90, weight: 50, behavior: 'walk' },
+            { key: 'brother2', speed: -220, size: 65, weight: 20, behavior: 'walk' },
+            { key: 'brother3', speed: -80, size: 90, weight: 30, behavior: 'jump' }
+        ];
+
+        function preload() {
+            createBrickTexture(this);
+            createGroundBrickTexture(this);
+            createQuestionBlockTexture(this);
+            createPipeTextures(this);
+            createCloudTexture(this);
+            createCoinTexture(this);
+            createBushTexture(this);
+            
+            // Load all music
+            this.load.audio('victoryMusic', 'victory.mp3');
+            this.load.audio('gameoverMusic', 'gameover.mp3');
+            this.load.audio('backgroundMusic', 'background.mp3');
+        }
+
+        function create() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            
+            startTime = this.time.now;
+            
+            // Start background music (looping)
+            if (this.sound) {
+                backgroundMusic = this.sound.add('backgroundMusic', { 
+                    loop: true, 
+                    volume: 0.3 
+                });
+                backgroundMusic.play();
+            }
+            
+            loadImageAsTexture(this, 'sister.png', 'sister');
+            loadImageAsTexture(this, 'brother1.png', 'brother1');
+            loadImageAsTexture(this, 'brother2.png', 'brother2');
+            loadImageAsTexture(this, 'brother3.png', 'brother3');
+            
+            // Clouds at various heights
+            this.cloud1 = this.add.image(150, 60, 'cloud').setScale(1.2);
+            this.cloud2 = this.add.image(400, 80, 'cloud').setScale(1.5);
+            this.cloud3 = this.add.image(650, 50, 'cloud').setScale(1.3);
+            
+            // Ground
+            const ground = this.add.group();
+            for (let i = 0; i < 25; i++) {
+                ground.create(i * 32, 464, 'ground_brick').setOrigin(0, 0);
+            }
+            
+            // Bushes on ground for decoration
+            this.add.image(120, 440, 'bush').setScale(1.2);
+            this.add.image(320, 440, 'bush').setScale(1.0);
+            this.add.image(520, 440, 'bush').setScale(1.4);
+            this.add.image(700, 440, 'bush').setScale(1.1);
+            
+            // Simplified layout - more open with fewer platforms
+            // Left side platforms
+            const platform1 = this.add.group();
+            for (let i = 0; i < 3; i++) {
+                platform1.create(150 + i * 32, 340, 'brick').setOrigin(0, 0);
+            }
+            
+            // Right side platforms
+            const platform2 = this.add.group();
+            for (let i = 0; i < 3; i++) {
+                platform2.create(450 + i * 32, 340, 'brick').setOrigin(0, 0);
+            }
+            
+            // One higher floating platform in middle
+            const platform3 = this.add.group();
+            for (let i = 0; i < 2; i++) {
+                platform3.create(300 + i * 32, 260, 'brick').setOrigin(0, 0);
+            }
+            
+            // Question blocks above platforms (coins spawn automatically)
+            this.add.image(200, 300, 'question_block');
+            this.add.image(500, 300, 'question_block');
+            
+            // Auto-spawn coins from question blocks
+            this.time.addEvent({
+                delay: 8000,
+                callback: () => {
+                    if (!gameOver && !gameWon) {
+                        spawnCoin(this, 200, 300);
+                        playSound(audioContext, 'coin');
+                    }
+                },
+                loop: true
+            });
+            
+            this.time.addEvent({
+                delay: 10000,
+                callback: () => {
+                    if (!gameOver && !gameWon) {
+                        spawnCoin(this, 500, 300);
+                        playSound(audioContext, 'coin');
+                    }
+                },
+                loop: true
+            });
+            
+            platforms = this.physics.add.staticGroup();
+            ground.children.entries.forEach(block => platforms.add(block));
+            platform1.children.entries.forEach(block => platforms.add(block));
+            platform2.children.entries.forEach(block => platforms.add(block));
+            platform3.children.entries.forEach(block => platforms.add(block));
+            
+            // Player
+            player = this.physics.add.sprite(80, 419, 'sister');
+            player.setDisplaySize(90, 90);
+            player.setBounce(0.15);
+            player.setCollideWorldBounds(true);
+            
+            const hat = this.add.circle(0, -47, 16, 0xFF0000);
+            player.hat = hat;
+            
+            enemies = this.physics.add.group();
+            coins = this.physics.add.group();
+            
+            this.enemySpawnTimer = this.time.addEvent({
+                delay: enemySpawnRate,
+                callback: () => spawnRandomEnemy(this),
+                callbackScope: this,
+                loop: true
+            });
+            
+            this.physics.add.collider(player, platforms);
+            this.physics.add.collider(enemies, platforms);
+            this.physics.add.collider(coins, platforms);
+            this.physics.add.overlap(player, enemies, hitEnemy, null, this);
+            this.physics.add.overlap(player, coins, collectCoin, null, this);
+            
+            cursors = this.input.keyboard.createCursorKeys();
+            spaceBar = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+            restartKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
+            
+            scoreText = this.add.text(16, 16, 'Score: 0', {
+                fontSize: '24px',
+                fill: '#fff',
+                fontFamily: 'Courier New',
+                stroke: '#000',
+                strokeThickness: 4
+            });
+            
+            coinText = this.add.text(16, 46, 'Coins: 0', {
+                fontSize: '20px',
+                fill: '#FFD700',
+                fontFamily: 'Courier New',
+                stroke: '#000',
+                strokeThickness: 4
+            });
+            
+            timerText = this.add.text(400, 16, '', {
+                fontSize: '24px',
+                fill: '#fff',
+                fontFamily: 'Courier New',
+                stroke: '#000',
+                strokeThickness: 4
+            }).setOrigin(0.5, 0);
+            
+            phraseText = this.add.text(400, 80, '', {
+                fontSize: '32px',
+                fill: '#FFFF00',
+                fontFamily: 'Arial Black',
+                stroke: '#000',
+                strokeThickness: 6
+            }).setOrigin(0.5);
+            
+            powerUpText = this.add.text(400, 120, '', {
+                fontSize: '28px',
+                fill: '#FF00FF',
+                fontFamily: 'Arial Black',
+                stroke: '#000',
+                strokeThickness: 5
+            }).setOrigin(0.5);
+        }
+
+        function update() {
+            if (gameOver || gameWon) {
+                if (Phaser.Input.Keyboard.JustDown(restartKey)) {
+                    this.scene.restart();
+                    score = 0;
+                    coinCount = 0;
+                    gameOver = false;
+                    gameWon = false;
+                    enemySpawnRate = 3000;
+                    lastDifficultyIncrease = 0;
+                    powerUpActive = false;
+                }
+                return;
+            }
+            
+            const elapsed = Math.floor((this.time.now - startTime) / 1000);
+            const remaining = Math.max(0, 60 - elapsed);
+            timerText.setText(`Time: ${remaining}s`);
+            
+            if (remaining === 0 && !gameWon) {
+                winGame(this);
+                return;
+            }
+            
+            if (score >= lastDifficultyIncrease + 150 && enemySpawnRate > 1500) {
+                lastDifficultyIncrease = score;
+                enemySpawnRate = Math.max(1500, enemySpawnRate - 300);
+                this.enemySpawnTimer.delay = enemySpawnRate;
+            }
+            
+            // Clouds drift
+            this.cloud1.x += 0.3;
+            this.cloud2.x += 0.5;
+            this.cloud3.x += 0.4;
+            
+            if (this.cloud1.x > 850) this.cloud1.x = -50;
+            if (this.cloud2.x > 850) this.cloud2.x = -50;
+            if (this.cloud3.x > 850) this.cloud3.x = -50;
+            
+            if (player.hat) {
+                player.hat.x = player.x;
+                player.hat.y = player.y - 47;
+            }
+            
+            if (cursors.left.isDown) {
+                player.setVelocityX(-200);
+            } else if (cursors.right.isDown) {
+                player.setVelocityX(200);
+            } else {
+                player.setVelocityX(0);
+            }
+            
+            if (Phaser.Input.Keyboard.JustDown(spaceBar) && player.body.touching.down) {
+                player.setVelocityY(-500);
+                playSound(audioContext, 'jump');
+                
+                const randomPhrase = Phaser.Utils.Array.GetRandom(phrases);
+                phraseText.setText(randomPhrase);
+                
+                this.time.delayedCall(1000, () => {
+                    phraseText.setText('');
+                });
+            }
+            
+            enemies.children.entries.forEach(enemy => {
+                if (!enemy.active) return; // Skip destroyed enemies
+                
+                if (enemy.x < -50) {
+                    enemy.destroy();
+                    score += 10;
+                    scoreText.setText('Score: ' + score);
+                    return; // Exit early after destroying
+                }
+                
+                if (enemy.behavior === 'jump' && enemy.body && enemy.body.touching.down && Phaser.Math.Between(0, 100) < 2) {
+                    enemy.setVelocityY(-300);
+                }
+            });
+            
+            coins.children.entries.forEach(coin => {
+                if (!coin.active) return; // Skip destroyed coins
+                
+                // Update glow position
+                if (coin.glowCircle && coin.glowCircle.active) {
+                    coin.glowCircle.x = coin.x;
+                    coin.glowCircle.y = coin.y;
+                }
+                
+                if (coin.y > 500) {
+                    if (coin.glowCircle) coin.glowCircle.destroy();
+                    coin.destroy();
+                }
+            });
+        }
+
+        function spawnRandomEnemy(scene) {
+            if (gameOver || gameWon) return;
+            
+            const totalWeight = enemyTypes.reduce((sum, type) => sum + type.weight, 0);
+            let random = Phaser.Math.Between(1, totalWeight);
+            
+            let selectedType = enemyTypes[0];
+            for (let type of enemyTypes) {
+                random -= type.weight;
+                if (random <= 0) {
+                    selectedType = type;
+                    break;
+                }
+            }
+            
+            const enemy = enemies.create(800, 429 - selectedType.size / 2, selectedType.key);
+            enemy.setDisplaySize(selectedType.size, selectedType.size);
+            enemy.setBounce(0.2);
+            enemy.setVelocityX(selectedType.speed);
+            enemy.setCollideWorldBounds(false);
+            enemy.behavior = selectedType.behavior;
+        }
+
+        function spawnCoin(scene, x, y) {
+            const glow = scene.add.circle(x, y - 40, 35, 0xFFFF00, 0.6);
+            
+            const coin = coins.create(x, y - 40, 'coin');
+            coin.setDisplaySize(60, 60);
+            coin.setBounce(0.5);
+            coin.setVelocityY(-250);
+            coin.setVelocityX(Phaser.Math.Between(-50, 50));
+            coin.glowCircle = glow;
+            
+            scene.tweens.add({
+                targets: glow,
+                scale: 1.3,
+                alpha: 0.3,
+                duration: 500,
+                yoyo: true,
+                repeat: -1
+            });
+            
+            scene.tweens.add({
+                targets: coin,
+                angle: 360,
+                duration: 1000,
+                repeat: -1
+            });
+            
+            scene.tweens.add({
+                targets: coin,
+                scaleX: 1.2,
+                scaleY: 1.2,
+                duration: 500,
+                yoyo: true,
+                repeat: -1
+            });
+        }
+
+        function collectCoin(player, coin) {
+            if (coin.glowCircle) coin.glowCircle.destroy();
+            coin.destroy();
+            coinCount++;
+            score += 50;
+            scoreText.setText('Score: ' + score);
+            coinText.setText('Coins: ' + coinCount);
+            playSound(audioContext, 'coin');
+            
+            createParticleBurst(this, coin.x, coin.y);
+            
+            if (coinCount % 3 === 0) {
+                activatePowerUp(this);
+            }
+        }
+        
+        function activatePowerUp(scene) {
+            powerUpActive = true;
+            powerUpEndTime = scene.time.now + 10000;
+            
+            powerUpText.setText('⚡ INVINCIBLE! ⚡');
+            playSound(audioContext, 'powerup');
+            
+            // Store tween so we can stop it
+            const colorTween = scene.tweens.add({
+                targets: player,
+                tint: { from: 0xFF0000, to: 0x00FFFF },
+                duration: 200,
+                yoyo: true,
+                repeat: 50
+            });
+            
+            scene.time.delayedCall(10000, () => {
+                powerUpActive = false;
+                powerUpText.setText('');
+                colorTween.stop(); // Stop the tween
+                player.clearTint(); // Clear any remaining tint
+            });
+        }
+
+        function hitEnemy(player, enemy) {
+            if (powerUpActive) {
+                // Destroy enemy and award bonus points
+                enemy.destroy();
+                score += 25;
+                scoreText.setText('Score: ' + score);
+                playSound(audioContext, 'bounce');
+                createParticleBurst(this, enemy.x, enemy.y);
+                return;
+            }
+            
+            this.physics.pause();
+            player.setTint(0xff0000);
+            gameOver = true;
+            
+            // Stop background music
+            if (backgroundMusic) {
+                backgroundMusic.stop();
+            }
+            
+            // Play game over music instead of beep
+            if (this.sound) {
+                this.sound.play('gameoverMusic', { volume: 0.5 });
+            }
+            shakeCamera(this);
+            
+            this.add.text(400, 240, 'GAME OVER', {
+                fontSize: '64px',
+                fill: '#fff',
+                fontFamily: 'Arial Black',
+                stroke: '#000',
+                strokeThickness: 8
+            }).setOrigin(0.5);
+            
+            this.add.text(400, 300, 'Press R to Restart', {
+                fontSize: '32px',
+                fill: '#fff',
+                fontFamily: 'Arial',
+                stroke: '#000',
+                strokeThickness: 4
+            }).setOrigin(0.5);
+        }
+
+        function winGame(scene) {
+            gameWon = true;
+            scene.physics.pause();
+            
+            // Stop background music
+            if (backgroundMusic) {
+                backgroundMusic.stop();
+            }
+            
+            // Play victory music instead of beep sound
+            if (scene.sound) {
+                scene.sound.play('victoryMusic', { volume: 0.5 });
+            }
+            
+            scene.add.text(400, 200, 'YOU WIN! 🎉', {
+                fontSize: '64px',
+                fill: '#FFD700',
+                fontFamily: 'Arial Black',
+                stroke: '#000',
+                strokeThickness: 8
+            }).setOrigin(0.5);
+            
+            scene.add.text(400, 270, `Final Score: ${score}`, {
+                fontSize: '32px',
+                fill: '#fff',
+                fontFamily: 'Arial',
+                stroke: '#000',
+                strokeThickness: 4
+            }).setOrigin(0.5);
+            
+            scene.add.text(400, 310, `Coins: ${coinCount}`, {
+                fontSize: '32px',
+                fill: '#FFD700',
+                fontFamily: 'Arial',
+                stroke: '#000',
+                strokeThickness: 4
+            }).setOrigin(0.5);
+            
+            scene.add.text(400, 360, 'Press R to Play Again', {
+                fontSize: '24px',
+                fill: '#fff',
+                fontFamily: 'Arial',
+                stroke: '#000',
+                strokeThickness: 4
+            }).setOrigin(0.5);
+            
+            for (let i = 0; i < 50; i++) {
+                scene.time.delayedCall(i * 50, () => {
+                    const x = Phaser.Math.Between(0, 800);
+                    const color = Phaser.Math.RND.pick([0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0xFF00FF]);
+                    const particle = scene.add.circle(x, -20, 5, color);
+                    scene.physics.add.existing(particle);
+                    particle.body.setVelocity(Phaser.Math.Between(-50, 50), Phaser.Math.Between(100, 200));
+                    particle.body.setGravityY(200);
+                    scene.time.delayedCall(3000, () => particle.destroy());
+                });
+            }
+        }
+
+        function createParticleBurst(scene, x, y) {
+            for (let i = 0; i < 12; i++) {
+                const colors = [0xFFD700, 0xFF6B6B, 0x4ECDC4, 0xFF00FF, 0x00FF00];
+                const color = Phaser.Utils.Array.GetRandom(colors);
+                const particle = scene.add.circle(x, y, 6, color);
+                const angle = (i / 12) * Math.PI * 2;
+                const speed = Phaser.Math.Between(40, 80);
+                scene.tweens.add({
+                    targets: particle,
+                    x: x + Math.cos(angle) * speed,
+                    y: y + Math.sin(angle) * speed,
+                    alpha: 0,
+                    scaleX: 0,
+                    scaleY: 0,
+                    duration: 600,
+                    ease: 'Power2',
+                    onComplete: () => particle.destroy()
+                });
+            }
+        }
+
+        function shakeCamera(scene) {
+            scene.cameras.main.shake(200, 0.01);
+        }
+
+        function loadImageAsTexture(scene, imagePath, key) {
+            const img = new Image();
+            img.onload = function() {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                
+                if (scene.textures.exists(key)) {
+                    scene.textures.remove(key);
+                }
+                scene.textures.addCanvas(key, canvas);
+                
+                if (key === 'sister' && player) {
+                    player.setTexture(key);
+                    player.setDisplaySize(90, 90);
+                }
+                if (key.startsWith('brother') && enemies) {
+                    enemies.children.entries.forEach(enemy => {
+                        if (enemy.texture.key === key) {
+                            enemy.setTexture(key);
+                        }
+                    });
+                }
+            };
+            img.onerror = function() {
+                createPlaceholderTexture(scene, key);
+            };
+            img.src = imagePath;
+        }
+
+        function createPlaceholderTexture(scene, key) {
+            const graphics = scene.make.graphics({x: 0, y: 0, add: false});
+            const color = key === 'sister' ? 0xFF6B6B : 0x4ECDC4;
+            graphics.fillStyle(color, 1);
+            graphics.fillCircle(20, 20, 20);
+            graphics.generateTexture(key, 40, 40);
+            graphics.destroy();
+        }
+
+        function playSound(ctx, type) {
+            if (!ctx) return;
+            
+            const oscillator = ctx.createOscillator();
+            const gainNode = ctx.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(ctx.destination);
+            
+            switch(type) {
+                case 'jump':
+                    oscillator.frequency.setValueAtTime(400, ctx.currentTime);
+                    oscillator.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.1);
+                    gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+                    oscillator.start(ctx.currentTime);
+                    oscillator.stop(ctx.currentTime + 0.1);
+                    break;
+                    
+                case 'coin':
+                    oscillator.frequency.setValueAtTime(800, ctx.currentTime);
+                    oscillator.frequency.setValueAtTime(1000, ctx.currentTime + 0.05);
+                    gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+                    oscillator.start(ctx.currentTime);
+                    oscillator.stop(ctx.currentTime + 0.15);
+                    break;
+                    
+                case 'gameover':
+                    oscillator.frequency.setValueAtTime(200, ctx.currentTime);
+                    oscillator.frequency.exponentialRampToValueAtTime(50, ctx.currentTime + 0.5);
+                    gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+                    oscillator.start(ctx.currentTime);
+                    oscillator.stop(ctx.currentTime + 0.5);
+                    break;
+                    
+                case 'win':
+                    const notes = [523, 587, 659, 784];
+                    notes.forEach((freq, i) => {
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.15);
+                        gain.gain.setValueAtTime(0.2, ctx.currentTime + i * 0.15);
+                        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + i * 0.15 + 0.3);
+                        osc.start(ctx.currentTime + i * 0.15);
+                        osc.stop(ctx.currentTime + i * 0.15 + 0.3);
+                    });
+                    break;
+                    
+                case 'powerup':
+                    const powerNotes = [400, 500, 600, 800, 1000];
+                    powerNotes.forEach((freq, i) => {
+                        const osc = ctx.createOscillator();
+                        const gain = ctx.createGain();
+                        osc.connect(gain);
+                        gain.connect(ctx.destination);
+                        osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.08);
+                        gain.gain.setValueAtTime(0.25, ctx.currentTime + i * 0.08);
+                        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + i * 0.08 + 0.2);
+                        osc.start(ctx.currentTime + i * 0.08);
+                        osc.stop(ctx.currentTime + i * 0.08 + 0.2);
+                    });
+                    break;
+                    
+                case 'bounce':
+                    oscillator.frequency.setValueAtTime(300, ctx.currentTime);
+                    oscillator.frequency.exponentialRampToValueAtTime(150, ctx.currentTime + 0.1);
+                    gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+                    oscillator.start(ctx.currentTime);
+                    oscillator.stop(ctx.currentTime + 0.1);
+                    break;
+            }
+        }
+
+        function createBrickTexture(scene) {
+            const graphics = scene.make.graphics({x: 0, y: 0, add: false});
+            graphics.fillStyle(0xFC9838, 1);
+            graphics.fillRect(0, 0, 32, 32);
+            graphics.lineStyle(2, 0xBC6818, 1);
+            graphics.strokeRect(1, 1, 30, 30);
+            graphics.lineStyle(1, 0xFCB040, 1);
+            graphics.lineBetween(2, 2, 30, 2);
+            graphics.lineBetween(2, 2, 2, 30);
+            graphics.generateTexture('brick', 32, 32);
+            graphics.destroy();
+        }
+
+        function createGroundBrickTexture(scene) {
+            const graphics = scene.make.graphics({x: 0, y: 0, add: false});
+            graphics.fillStyle(0xD07000, 1);
+            graphics.fillRect(0, 0, 32, 32);
+            graphics.lineStyle(2, 0x884400, 1);
+            graphics.strokeRect(1, 1, 30, 30);
+            graphics.lineStyle(1, 0x884400, 1);
+            graphics.lineBetween(16, 0, 16, 32);
+            graphics.lineBetween(0, 16, 32, 16);
+            graphics.generateTexture('ground_brick', 32, 32);
+            graphics.destroy();
+        }
+
+        function createQuestionBlockTexture(scene) {
+            const graphics = scene.make.graphics({x: 0, y: 0, add: false});
+            graphics.fillStyle(0xFCB040, 1);
+            graphics.fillRect(0, 0, 32, 32);
+            graphics.lineStyle(2, 0xBC8020, 1);
+            graphics.strokeRect(1, 1, 30, 30);
+            graphics.fillStyle(0xBC8020, 1);
+            graphics.fillRect(14, 14, 4, 4);
+            graphics.generateTexture('question_block', 32, 32);
+            graphics.destroy();
+        }
+
+        function createPipeTextures(scene) {
+            const graphics = scene.make.graphics({x: 0, y: 0, add: false});
+            graphics.fillStyle(0x00A800, 1);
+            graphics.fillRect(0, 0, 64, 32);
+            graphics.lineStyle(2, 0x00D800, 1);
+            graphics.strokeRect(2, 2, 60, 28);
+            graphics.fillStyle(0x000000, 1);
+            graphics.fillRect(8, 4, 48, 24);
+            graphics.generateTexture('pipe_top', 64, 32);
+            graphics.clear();
+            graphics.fillStyle(0x00A800, 1);
+            graphics.fillRect(0, 0, 64, 32);
+            graphics.lineStyle(2, 0x00D800, 1);
+            graphics.strokeRect(2, 2, 60, 28);
+            graphics.generateTexture('pipe_bottom', 64, 32);
+            graphics.destroy();
+        }
+
+        function createCloudTexture(scene) {
+            const graphics = scene.make.graphics({x: 0, y: 0, add: false});
+            graphics.fillStyle(0xFFFFFF, 1);
+            graphics.fillEllipse(40, 20, 50, 30);
+            graphics.fillEllipse(20, 20, 30, 30);
+            graphics.fillEllipse(60, 20, 30, 30);
+            graphics.generateTexture('cloud', 80, 40);
+            graphics.destroy();
+        }
+
+        function createCoinTexture(scene) {
+            const graphics = scene.make.graphics({x: 0, y: 0, add: false});
+            graphics.fillStyle(0xFFD700, 1);
+            graphics.fillCircle(12, 12, 10);
+            graphics.lineStyle(2, 0xFFA500, 1);
+            graphics.strokeCircle(12, 12, 10);
+            graphics.fillStyle(0xFFA500, 1);
+            graphics.fillCircle(12, 12, 4);
+            graphics.generateTexture('coin', 24, 24);
+            graphics.destroy();
+        }
+        
+        function createBushTexture(scene) {
+            const graphics = scene.make.graphics({x: 0, y: 0, add: false});
+            graphics.fillStyle(0x2E7D32, 1);
+            graphics.fillCircle(20, 25, 15);
+            graphics.fillCircle(35, 25, 12);
+            graphics.fillCircle(5, 25, 12);
+            graphics.fillCircle(20, 15, 10);
+            graphics.generateTexture('bush', 40, 30);
+            graphics.destroy();
+        }
+    </script>
+</body>
+</html>
